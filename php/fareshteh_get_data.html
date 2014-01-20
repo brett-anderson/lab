@@ -1,0 +1,182 @@
+<?php
+
+	//uncomment and adjust the following line if using localDB
+	$dbconn = pg_connect("host=localhost port=5432 dbname=smt_research user=postgres password=123456"); //localDB
+	//uncomment and adjust the following line if using live DB
+	//$dbconn = pg_connect("host=localhost port=5432 dbname=SMT user=SMTRead"); //liveDB
+	if (!$dbconn) {
+	    die(json_encode('Error:Could not connect!: ' . pg_last_error()));
+	}
+	//echo pg_last_error();
+
+	$table_name = isset($_POST["table_name"]) ? $_POST["table_name"] : false;
+	if($table_name){
+	   switch ($table_name){
+	       case "Drawing":
+	           get_drawings();
+	           break;
+	       case "Sensor":
+	           get_sensors();
+	           break;
+           case "pData":
+               get_sensor_data();
+               break;
+          case "v_Weather":
+               get_weather_data();
+               break;
+	   }
+	}
+
+	function get_drawings(){
+	    GLOBAL $dbconn;
+        $job = $_POST["job"];
+
+        // get jobID
+        $result1 = pg_query($dbconn, 'select * from "Job" where "gwID"='.strval($job));
+        if (!$result1) {
+            die(json_encode('Error: Query failed!: ' . pg_last_error()));
+        }
+        $drawing = false;
+        $job_id = true;
+        $counter = 0;
+        while(!$drawing && $job_id){
+            $job_id = pg_fetch_result($result1, $counter, '"jobID"');
+
+            //get drawings
+            $result2 = pg_query($dbconn, 'select * from "Drawing" where "jobID"='.strval($job_id).' order by "sortID" ASC');
+            if (!$result2) {
+                die(json_encode('Error: Query failed!: ' . pg_last_error()));
+            }
+            $drawing = pg_fetch_all($result2);
+            $counter++;
+        }
+        echo json_encode($drawing);
+        pg_free_result($result1);    
+        pg_free_result($result2);
+
+	}
+
+    function get_weather_data(){
+        GLOBAL $dbconn;
+        $month = $_POST["month"];
+        $year = $_POST["year"];
+
+        //ToFix: get this dynamically using job_id
+        $loc_id = 23;
+
+        $query = "select * from \"v_Weather\" where \"locID\"=".strval($loc_id) ." and to_char(\"builddate\",'YYYY')='".strval($year)."'"." and to_char(\"builddate\",'MM')='".strval($month)."'";
+
+        //get Weather data
+        $result = pg_query($dbconn, $query);
+
+        if (!$result) {
+            die(json_encode('Error: Query failed!: ' . pg_last_error()));
+        }
+        $result_arr = pg_fetch_all($result);        
+        pg_free_result($result);        
+        echo json_encode($result_arr);
+
+    }
+
+	function get_sensor_data(){
+	    GLOBAL $dbconn;
+        $sensor_id = $_POST["sensor_id"];
+        $month = $_POST["month"];
+        $year = $_POST["year"];
+
+        $query = "select * from \"pData\" where \"sensorID\"=".strval($sensor_id) ." and to_char(\"ts\",'YYYY')='".strval($year)."'"." and to_char(\"ts\",'MM')='".strval($month)."'";
+
+        //get Sensor data
+        $result = pg_query($dbconn, $query);
+
+        if (!$result) {
+            die(json_encode('Error: Query failed!: ' . pg_last_error()));
+        }
+        $result_arr = pg_fetch_all($result);
+
+        echo json_encode($result_arr);
+        pg_free_result($result);
+
+	}
+
+
+	function get_sensors(){
+	    GLOBAL $dbconn;
+        $job = $_POST["job"];
+        $sensor_type = isset($_POST["sensor_type"]) ? $_POST["sensor_type"] : "-1";
+
+        // get jobID
+        $result1 = pg_query($dbconn, 'select * from "Job" where "gwID"='.strval($job));
+        if (!$result1) {
+            die(json_encode('Error: Query failed!: ' . pg_last_error()));
+        }
+        $drawing = false;
+        $job_id = true;        
+		$counter = 0;        
+            
+        while(!$drawing && $job_id){
+            $job_id = pg_fetch_result($result1, $counter, '"jobID"');
+
+            //$job_id = 1592;
+
+            //get drawings
+            $result2 = pg_query($dbconn, 'select * from "Drawing" where "jobID"='.strval($job_id).' order by "sortID" ASC');
+           
+            if (!$result2) {
+                die(json_encode('Error: Query failed!: ' . pg_last_error()));
+            }
+            $drawing = pg_fetch_all($result2);
+            $counter++;
+        }
+        pg_free_result($result1);
+        pg_free_result($result2);
+        
+        $result_all = array();
+        
+        foreach ($drawing as &$drawing_obj) {
+        
+            //get drawing id
+            //$drawing_id = pg_fetch_result($result, 0, '"dID"');
+            $drawing_id = $drawing_obj['dID'];        
+
+            //get Sensor ids
+            $result = pg_query($dbconn, 'SELECT *, D."sensorID" as "sensorID" FROM "DrawingSensorLines" as D LEFT OUTER JOIN "RBSensorConfig" as C ON(D."sensorID"=C."sensorID") LEFT OUTER JOIN 
+            "Sensor" as S ON(D."sensorID"=S."sensorID") left outer join "SensorType" as ST ON(S."stID"=ST."stID") where D."dID"='.strval($drawing_id). ' and S."stID"='.$sensor_type);
+
+            if ($result) {
+                $result_arr = pg_fetch_all($result);
+                foreach($result_arr as &$res){
+                    $result_all[] = $res;
+                }
+                unset($res);
+            }
+         
+        }
+        unset($drawing_obj);
+        pg_free_result($result);
+        
+        echo json_encode($result_all);
+
+        //get rmu
+        //$result = pg_query($dbconn, 'select * from "RMU" where "gwID"='.strval($job));
+        //if (!$result) {
+        //    die(json_encode('Error: Query failed!: ' . pg_last_error()));
+        //}
+        //$rmu = pg_fetch_result($result, 0, '"rmuID"');
+        //pg_free_result($result);
+
+        //$query = 'select * from "Sensor" where "rmuID"='.strval($rmu);
+
+        //$result = pg_query($dbconn, $query);
+        //if (!$result) {
+        //    die(json_encode('Error: Query failed!: ' . pg_last_error()));
+        //}
+        //$result = pg_fetch_all($result);
+
+        //echo json_encode($result);
+        //pg_free_result($result);
+	}
+
+	pg_close($dbconn);
+
+?>
